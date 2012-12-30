@@ -12,7 +12,7 @@ $(document).ready(function(){
 	if (typeof FileActions !== 'undefined') {
 		// Add history button to 'files/index.php'
 		FileActions.register(
-			'file'
+			'all'
 			, t('files_versions', 'History')
 			, OC.PERMISSION_UPDATE
 			, function() {
@@ -45,7 +45,7 @@ function createVersionsDropdown(filename, files) {
 
 	var historyUrl = OC.linkTo('files_versions', 'history.php') + '?path='+encodeURIComponent( $( '#dir' ).val() ).replace( /%2F/g, '/' )+'/'+encodeURIComponent( filename );
 
-	var html = '<div id="dropdown" class="drop drop-versions" data-file="'+escapeHTML(files)+'">';
+	var html = '<div id="dropdown" class="drop drop-versions" data-file="'+files+'">';
 	html += '<div id="private">';
 	html += '<select data-placeholder="Saved versions" id="found_versions" class="chzen-select" style="width:16em;">';
 	html += '<option value=""></option>';
@@ -68,19 +68,19 @@ function createVersionsDropdown(filename, files) {
 		data: { source: files },
 		async: false,
 		success: function( versions ) {
-
+			
 			if (versions) {
 				$.each( versions, function(index, row ) {
 					addVersion( row );
 				});
+				$('#found_versions').chosen();
 			} else {
 				$('#found_versions').hide();
 				$('#makelink').hide();
 				$('<div style="text-align:center;">No other versions available</div>').appendTo('#dropdown');
 			}
 			$('#found_versions').change(function(){
-				var revision=parseInt($(this).val());
-				revertFile(files,revision);
+				revertFile(files,$(this).val());
 			});
 		}
 	});
@@ -98,6 +98,8 @@ function createVersionsDropdown(filename, files) {
 					OC.dialogs.alert('Failed to revert '+file+' to revision '+formatDate(revision*1000)+'.','Failed to revert');
 				} else {
 					$('#dropdown').hide('blind', function() {
+						$('#notification').text(t('files',file+' reverted to revision '+formatDate(revision*1000)));
+						$('#notification').fadeIn();
 						$('#dropdown').remove();
 						$('tr').removeClass('mouseOver');
 						// TODO also update the modified time in the web ui
@@ -109,10 +111,15 @@ function createVersionsDropdown(filename, files) {
 	}
 
 	function addVersion( revision ) {
-		name=formatDate(revision.version*1000);
 		var version=$('<option/>');
 		version.attr('value',revision.version);
-		version.text(name);
+		if ( revision.deleted === true ){
+			var date = revision.version.split(".d");
+			version.text(date[0]+" deleted on: "+formatDate(date[1]*1000));
+		} else {
+			name=formatDate(revision.version*1000);
+			version.text(name);
+		}
 
 // 		} else {
 // 			var checked = ((permissions > 0) ? 'checked="checked"' : 'style="display:none;"');
@@ -127,7 +134,7 @@ function createVersionsDropdown(filename, files) {
 
 		version.appendTo('#found_versions');
 	}
-
+	
 	$('tr').filterAttr('data-file',filename).addClass('mouseOver');
 	$('#dropdown').show('blind');
 
@@ -143,6 +150,6 @@ $(this).click(
 		});
 	}
 
-
+	
 	}
 );

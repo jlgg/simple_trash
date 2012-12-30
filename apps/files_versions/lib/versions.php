@@ -58,7 +58,7 @@ class Storage {
 	public function store($filename) {
 		if(\OCP\Config::getSystemValue('files_versions', Storage::DEFAULTENABLED)=='true') {
 			list($uid, $filename) = self::getUidAndFilename($filename);
-			$files_view = new \OC_FilesystemView('/'.$uid .'/files');
+			$files_view = new \OC_FilesystemView('/'.$uid.'/files');
 			$users_view = new \OC_FilesystemView('/'.$uid);
 
 			//check if source file already exist as version to avoid recursions.
@@ -73,7 +73,7 @@ class Storage {
 			}
 
 			// check filetype blacklist
-			$blacklist=explode(' ', \OCP\Config::getSystemValue('files_versionsblacklist', Storage::DEFAULTBLACKLIST));
+			$blacklist=explode(' ',\OCP\Config::getSystemValue('files_versionsblacklist', Storage::DEFAULTBLACKLIST));
 			foreach($blacklist as $bl) {
 				$parts=explode('.', $filename);
 				$ext=end($parts);
@@ -95,11 +95,10 @@ class Storage {
 			// check mininterval if the file is being modified by the owner (all shared files should be versioned despite mininterval)
 			if ($uid == \OCP\User::getUser()) {
 				$versions_fileview = new \OC_FilesystemView('/'.$uid.'/files_versions');
-				$versionsName=\OCP\Config::getSystemValue('datadirectory').$versions_fileview->getAbsolutePath($filename);
-				$versionsFolderName=\OCP\Config::getSystemValue('datadirectory').$versions_fileview->getAbsolutePath('');
-				$matches=glob($versionsName.'.v*');
+				$versionsFolderName=\OCP\Config::getSystemValue('datadirectory'). $versions_fileview->getAbsolutePath('');
+				$matches=glob($versionsFolderName.'/'.$filename.'.v*');
 				sort($matches);
-				$parts=explode('.v', end($matches));
+				$parts=explode('.v',end($matches));
 				if((end($parts)+Storage::DEFAULTMININTERVAL)>time()) {
 					return false;
 				}
@@ -107,9 +106,9 @@ class Storage {
 
 
 			// create all parent folders
-			$info=pathinfo($filename);
-			if(!file_exists($versionsFolderName.'/'.$info['dirname'])) {
-				mkdir($versionsFolderName.'/'.$info['dirname'], 0750, true);
+			$dirname = dirname($filename);
+			if(!$users_view->file_exists('/files_versions/'.$dirname)) {
+				$users_view->mkdir('/files_versions/'.$dirname,0700,true);
 			}
 
 			// store a new version of a file
@@ -124,21 +123,22 @@ class Storage {
 	/**
 	 * rollback to an old version of a file.
 	 */
-	public static function rollback($filename, $revision) {
+	public static function rollback($filename,$revision) {
 
 		if(\OCP\Config::getSystemValue('files_versions', Storage::DEFAULTENABLED)=='true') {
 			list($uid, $filename) = self::getUidAndFilename($filename);
 			$users_view = new \OC_FilesystemView('/'.$uid);
 
-			// rollback
-			if( @$users_view->copy('files_versions'.$filename.'.v'.$revision, 'files'.$filename) ) {
-
-				return true;
-
-			}else{
-
-				return false;
-
+			if(strpos($revision, '.d') === false){ //rollback
+				return @$users_view->copy('files_versions'.$filename.'.v'.$revision, 'files'.$filename);
+			} else {// undelete
+				$src = 'files_versions'.$filename.'/'.$revision;
+				$tmp = explode('.d',$revision);
+				$dst = 'files'.$filename.'/'.$tmp[0];
+				if($users_view->file_exists($dst)) {
+					return false;
+				}
+				return @$users_view->rename($src,$dst);
 			}
 
 		}
@@ -153,10 +153,10 @@ class Storage {
 			list($uid, $filename) = self::getUidAndFilename($filename);
 			$versions_fileview = new \OC_FilesystemView('/'.$uid.'/files_versions');
 
-			$versionsName=\OCP\Config::getSystemValue('datadirectory').$versions_fileview->getAbsolutePath($filename);
+			$versionsFolderName=\OCP\Config::getSystemValue('datadirectory'). $versions_fileview->getAbsolutePath('');
 
 			// check for old versions
-			$matches=glob($versionsName.'.v*');
+			$matches=glob($versionsFolderName.$filename.'.v*')+glob($versionsFolderName.$filename.'/*.d*');
 			if(count($matches)>0) {
 				return true;
 			}else{
@@ -176,20 +176,47 @@ class Storage {
 	 * @returns array
 	 */
 	public static function getVersions( $filename, $count = 0 ) {
+
 		if( \OCP\Config::getSystemValue('files_versions', Storage::DEFAULTENABLED)=='true' ) {
 			list($uid, $filename) = self::getUidAndFilename($filename);
 			$versions_fileview = new \OC_FilesystemView('/'.$uid.'/files_versions');
 
-			$versionsName = \OCP\Config::getSystemValue('datadirectory').$versions_fileview->getAbsolutePath($filename);
+			$versionsFolderName = \OCP\Config::getSystemValue('datadirectory'). $versions_fileview->getAbsolutePath('');
 			$versions = array();
+
+
+			if($versions_fileview->is_dir($filename)) { //if it is a directory
+				// fetch for old versions
+				$matches = glob( $versionsFolderName.'/'.$filename.'/*.d*' );
+	
+				sort( $matches );
+	
+				$i = 0;
+
+				$files_view = new \OC_FilesystemView('/'.$uid.'/files');
+				$local_file = $files_view->getLocalFile($filename);
+				foreach( $matches as $ma ) {
+
+					$i++;
+					$versions[$i]['cur'] = 0;
+					$parts = explode( '/', $ma );
+					$versions[$i]['version'] = ( end($parts) );
+					$versions[$i]['deleted'] = true;
+				}
+	
+				return( $versions );
+
+
+			} else { //file
+
 			// fetch for old versions
-			$matches = glob( $versionsName.'.v*' );
+			$matches = glob( $versionsFolderName.'/'.$filename.'.v*' );
 
 			sort( $matches );
 
 			$i = 0;
 
-			$files_view = new \OC_FilesystemView('/'.\OCP\User::getUser().'/files');
+			$files_view = new \OC_FilesystemView('/'.$uid.'/files');
 			$local_file = $files_view->getLocalFile($filename);
 			foreach( $matches as $ma ) {
 
@@ -197,6 +224,7 @@ class Storage {
 				$versions[$i]['cur'] = 0;
 				$parts = explode( '.v', $ma );
 				$versions[$i]['version'] = ( end( $parts ) );
+				$versions[$i]['deleted'] = false;
 
 				// if file with modified date exists, flag it in array as currently enabled version
 				( \md5_file( $ma ) == \md5_file( $local_file ) ? $versions[$i]['fileMatch'] = 1 : $versions[$i]['fileMatch'] = 0 );
@@ -228,7 +256,7 @@ class Storage {
 
 			return( $versions );
 
-
+			}
 		} else {
 
 			// if versioning isn't enabled then return an empty array
@@ -246,10 +274,10 @@ class Storage {
 			list($uid, $filename) = self::getUidAndFilename($filename);
 			$versions_fileview = new \OC_FilesystemView('/'.$uid.'/files_versions');
 
-			$versionsName=\OCP\Config::getSystemValue('datadirectory').$versions_fileview->getAbsolutePath($filename);
+			$versionsFolderName=\OCP\Config::getSystemValue('datadirectory'). $versions_fileview->getAbsolutePath('');
 
 			// check for old versions
-			$matches = glob( $versionsName.'.v*' );
+			$matches = glob( $versionsFolderName.'/'.$filename.'.v*' );
 
 			if( count( $matches ) > \OCP\Config::getSystemValue( 'files_versionmaxversions', Storage::DEFAULTMAXVERSIONS ) ) {
 
@@ -260,7 +288,7 @@ class Storage {
 
 				foreach( $deleteItems as $de ) {
 
-					unlink( $versionsName.'.v'.$de );
+					unlink( $versionsFolderName.'/'.$filename.'.v'.$de );
 
 				}
 			}

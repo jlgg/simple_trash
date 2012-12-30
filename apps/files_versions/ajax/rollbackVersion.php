@@ -6,8 +6,7 @@ OCP\JSON::callCheck();
 $userDirectory = "/".OCP\USER::getUser()."/files";
 
 $file = $_GET['file'];
-$revision=(int)$_GET['revision'];
-
+$revision=$_GET['revision'];
 if( OCA_Versions\Storage::isversioned( $file ) ) {
 	if(OCA_Versions\Storage::rollback( $file, $revision )) {
 		OCP\JSON::success(array("data" => array( "revision" => $revision, "file" => $file )));
